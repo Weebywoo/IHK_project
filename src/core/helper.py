@@ -1,24 +1,17 @@
 import os
+import shutil
+import stat
 
 import docker
-import yaml
 from docker import DockerClient
 from docker.models.containers import Container
 from docker.models.images import Image
 from git import Repo
-from yaml import Loader
 
 from src.models.custom_types import Config, occupied_ports, base_port
 
 docker_client: DockerClient = docker.from_env()
-
-
-def load_config() -> Config:
-    with open("config.yaml") as config_file:
-        return yaml.load(config_file, Loader)
-
-
-config: Config = load_config()
+config: Config = Config.load()
 
 
 def find_new_port() -> int | None:
@@ -29,12 +22,8 @@ def find_new_port() -> int | None:
     return None
 
 
-def clone_repository(repository_url: str, repository_name: str) -> str:
-    path: str = "./repositories/" + repository_name
-
-    Repo.clone_from(url=repository_url, to_path=path)
-
-    return path
+def clone_repository(repository_url: str, repository_name: str) -> None:
+    Repo.clone_from(url=repository_url, to_path="./repositories/" + repository_name)
 
 
 def build_image(path: str) -> Image:
@@ -43,12 +32,21 @@ def build_image(path: str) -> Image:
     return docker_client.images.build(path=path, tag=repository_name, rm=True)[0]
 
 
+def readonly_handler(rm_func, path, exc_info):
+    if issubclass(exc_info[0], PermissionError) and exc_info[1].winerror == 5:
+        os.chmod(path, stat.S_IWRITE)
+
+        return rm_func(path)
+
+    raise exc_info[1]
+
+
 def remove_repository(path: str) -> None:
-    os.rmdir(path)
+    shutil.rmtree(path, onerror=readonly_handler)
 
 
 def get_all_containers() -> list[Container]:
-    return docker_client.containers.list()
+    return docker_client.containers.list(all=True)
 
 
 def find_container(repository_name: str) -> Container | None:
@@ -59,8 +57,8 @@ def find_container(repository_name: str) -> Container | None:
     return None
 
 
-def deploy_image(repository_name: str, repository_secrets: dict[str, str], ports: dict[str, int], image: Image) -> None:
-    container: Container = find_container(repository_name)
+def deploy_image(repository_name: str, environment_variables: dict[str, str], image: Image) -> None:
+    container: Container | None = find_container(repository_name)
 
     if container:
         if container.status == "running":
@@ -72,8 +70,6 @@ def deploy_image(repository_name: str, repository_secrets: dict[str, str], ports
         image,
         name=repository_name,
         detach=True,
-        remove=True,
         network="host",
-        environment=repository_secrets,
-        ports=ports,
+        environment=environment_variables,
     )

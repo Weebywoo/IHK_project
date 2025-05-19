@@ -16,8 +16,10 @@ class RepositoryConfigGetResponse(BaseModel):
 class RepositoryConfigUpdateResponse(BaseModel):
     config: RepositoryConfig
 
+
 class ContainerStatusResponse(BaseModel):
     status: ContainerInfo
+
 
 class GetAllStatusResponse(BaseModel):
     status: dict[str, ContainerInfo]

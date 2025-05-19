@@ -1,8 +1,9 @@
+import os.path
 from http import HTTPStatus
 
 from docker.models.containers import Container
 from docker.models.images import Image
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from src.core.helper import (
     clone_repository,
@@ -11,31 +12,24 @@ from src.core.helper import (
     deploy_image,
     config,
     find_container,
-    find_new_port,
 )
 from src.models.custom_types import RepositoryConfig
-from src.models.requests import CreateRepositoryRequest
+from src.models.requests import CreateRepositoryRequest, GithubWebhookRequest
 
 router: APIRouter = APIRouter(prefix="/deployment", tags=["deployment"])
 
 
 @router.post("/create/{repository_name}", status_code=HTTPStatus.CREATED)
 async def create_deployment(repository_name: str, create_repository_request: CreateRepositoryRequest) -> None:
-    ports: dict[str, int] = {}
-
-    for port in create_repository_request.ports:
-        external_port: int | None = find_new_port()
-
-        if external_port:
-            ports[port] = external_port
-
     repository_config: RepositoryConfig = RepositoryConfig(
-        name=repository_name, url=create_repository_request.url, secrets=create_repository_request.secrets, ports=ports
+        name=repository_name,
+        url=create_repository_request.url,
+        environment_variables=create_repository_request.environment_variables,
     )
 
     config.add(repository_name, repository_config)
 
-    await trigger_deployment(repository_config.name)
+    await trigger_deployment(repository_name)
 
 
 @router.delete("/remove/{repository_name}", status_code=HTTPStatus.NO_CONTENT)
@@ -53,12 +47,17 @@ async def remove_deployment(repository_name: str) -> None:
 
 @router.post("/trigger/{repository_name}", status_code=HTTPStatus.OK)
 async def trigger_deployment(repository_name: str) -> None:
-    repository_config: RepositoryConfig = config.get(repository_name)
-    path: str = clone_repository(str(repository_config.url), repository_config.name)
+    path: str = "./repositories/" + repository_name
+    repository_config: RepositoryConfig = config.repositories[repository_name]
+
+    clone_repository(str(repository_config.url), repository_config.name)
+
     image: Image = build_image(path)
 
     remove_repository(path)
-    deploy_image(repository_config.name, repository_config.secrets, repository_config.ports, image)
+
+    deploy_image(repository_config.name, repository_config.environment_variables, image)
+
 
 
 @router.post("/stop/{repository_name}", status_code=HTTPStatus.OK)
@@ -75,3 +74,14 @@ async def start_container(repository_name: str) -> None:
 
     if container and container.status == "exited":
         container.start()
+
+
+@router.post("/github", status_code=HTTPStatus.OK)
+async def github_webhook_handler(github_webhook_request: GithubWebhookRequest) -> None:
+    repository_name: str = github_webhook_request.repository.name
+
+    if repository_name not in config.repositories:
+        raise HTTPException(404, f"Could not find repository {repository_name} in config.")
+
+    if github_webhook_request.repository.master_branch == "main":
+        await trigger_deployment(repository_name)

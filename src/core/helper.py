@@ -1,6 +1,7 @@
 import os
 import shutil
 import stat
+from typing import Optional, Any
 
 import docker
 from docker import DockerClient
@@ -8,10 +9,18 @@ from docker.models.containers import Container
 from docker.models.images import Image
 from git import Repo
 
-from src.models.custom_types import Config, occupied_ports, base_port
+from src.models.custom_types import Config, occupied_ports, base_port, AccessToken
 
 docker_client: DockerClient = docker.from_env()
 config: Config = Config.load()
+access_token: AccessToken = AccessToken()
+
+
+def combine_url_and_params(path: str, params: Optional[dict[str, Any]]) -> str:
+    if params:
+        path += "?" + "&".join(f"{key}={value}" for key, value in params.items())
+
+    return path
 
 
 def find_new_port() -> int | None:
@@ -23,6 +32,10 @@ def find_new_port() -> int | None:
 
 
 def clone_repository(repository_url: str, repository_name: str) -> None:
+    if access_token:
+        protocol, path = repository_url.split("://")
+        repository_url = f"{protocol}://{access_token}@{path}"
+
     Repo.clone_from(url=repository_url, to_path="./repositories/" + repository_name)
 
 

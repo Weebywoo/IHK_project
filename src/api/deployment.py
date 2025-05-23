@@ -1,5 +1,5 @@
-import os.path
 from http import HTTPStatus
+from typing import Optional
 
 from docker.models.containers import Container
 from docker.models.images import Image
@@ -12,6 +12,7 @@ from src.core.helper import (
     deploy_image,
     config,
     find_container,
+    access_token,
 )
 from src.models.custom_types import RepositoryConfig
 from src.models.requests import CreateRepositoryRequest, GithubWebhookRequest
@@ -27,7 +28,7 @@ async def create_deployment(repository_name: str, create_repository_request: Cre
         environment_variables=create_repository_request.environment_variables,
     )
 
-    config.add(repository_name, repository_config)
+    config.add_repository_config(repository_name, repository_config)
 
     await trigger_deployment(repository_name)
 
@@ -59,7 +60,6 @@ async def trigger_deployment(repository_name: str) -> None:
     deploy_image(repository_config.name, repository_config.environment_variables, image)
 
 
-
 @router.post("/stop/{repository_name}", status_code=HTTPStatus.OK)
 async def stop_container(repository_name: str) -> None:
     container: Container = find_container(repository_name)
@@ -83,5 +83,4 @@ async def github_webhook_handler(github_webhook_request: GithubWebhookRequest) -
     if repository_name not in config.repositories:
         raise HTTPException(404, f"Could not find repository {repository_name} in config.")
 
-    if github_webhook_request.repository.master_branch == "main":
-        await trigger_deployment(repository_name)
+    await trigger_deployment(repository_name)

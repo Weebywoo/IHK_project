@@ -29,6 +29,12 @@ def get_all_status() -> GetAllStatusResponse:
 @router.get("/{repository_name}", status_code=HTTPStatus.OK, response_model=ContainerStatusResponse)
 def get_status(repository_name: str) -> ContainerStatusResponse:
     container: Container = find_container(repository_name)
-    container_info: ContainerInfo = ContainerInfo(id=container.id, name=container.name, status=container.status)
+    container_info: ContainerInfo = ContainerInfo(
+        id=container.id,
+        name=container.name,
+        status=container.status,
+        url=config.repositories[repository_name].url,
+        environment_variables=config.repositories[repository_name].environment_variables,
+    )
 
     return ContainerStatusResponse(status=container_info)
